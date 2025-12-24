@@ -1,11 +1,13 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
+import { RouterModule } from '@angular/router';
 
 @Component({
   selector: 'app-root',
-  template: '<router-outlet />',
+  templateUrl: './app.html',
+  styleUrls: ['./app.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet]
+  imports: [RouterModule] // Add imports here
 })
-export class App {
+export class AppComponent {
+  title = signal('AI Content Tools');
 }
