@@ -1,0 +1,58 @@
+<div class="extractor-container">
+  <header>
+    <h1>AI-Powered Learning Extractor</h1>
+    <p>Paste a URL to have AI extract the key concepts and learning path.</p>
+  </header>
+
+  <div class="input-section">
+    <input type="text" placeholder="Enter URL here..." [value]="url()" (input)="onUrlChange($event)" />
+    <button (click)="extractContent()" [disabled]="loading()">
+      @if (loading()) {
+        <span class="loader"></span>
+      } @else {
+        <span>Extract & Analyze</span>
+      }
+    </button>
+  </div>
+
+  @if (loading()) {
+    <div class="loading-container">
+      <p>AI is analyzing the content... please wait.</p>
+    </div>
+  }
+
+  @if (extractedContent()) {
+    <div class="results-grid">
+      <section class="content-section">
+        <h2>Extracted Content</h2>
+        <div class="extracted-content">
+          <p>{{ extractedContent() }}</p>
+        </div>
+      </section>
+
+      <section class="analysis-section">
+        @if (keyConcepts().length > 0) {
+          <div class="key-concepts">
+            <h3>Key Concepts</h3>
+            <ul>
+              @for (concept of keyConcepts(); track concept) {
+                <li>{{ concept }}</li>
+              }
+            </ul>
+          </div>
+        }
+
+        @if (relatedLinks().length > 0) {
+          <div class="related-links">
+            <h3>Related Links</h3>
+            <ul>
+               @for (link of relatedLinks(); track link.url) {
+                <li><a [href]="link.url" target="_blank">{{ link.title }}</a></li>
+              }
+            </ul>
+          </div>
+        }
+      </section>
+    </div>
+  }
+</div>
