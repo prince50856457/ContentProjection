@@ -28,8 +28,7 @@ const CONCEPT_DEFINITIONS = {
         overview: 'A system that allows Angular to track how and where your state is used in the application, enabling fine-grained change detection.',
         explanation: 'Signals are reactive primitives that hold a value and notify interested consumers when that value changes. When a signal is updated, Angular knows exactly which components in the template need to be updated, without having to re-check the entire component tree. This leads to significant performance improvements.',
         example: `
-import { Component, signal, computed } from '@angular/core';\n\n@Component({ selector: 'app-todo-list' })\nexport class TodoListComponent {\n  // A writable signal for the list of tasks\n  tasks = signal([{ title: 'Learn Signals', done: true }]);\n  \n  // A computed signal that derives its value from other signals\n  remainingTasks = computed(() => this.tasks().filter(t => !t.done).length);\n
-  addTask(title: string) {\n    this.tasks.update(currentTasks => [...currentTasks, { title, done: false }]);\n  }\n}\n`,
+import { Component, signal, computed } from '@angular/core';\n\n@Component({ selector: 'app-todo-list' })\nexport class TodoListComponent {\n  // A writable signal for the list of tasks\n  tasks = signal([{ title: 'Learn Signals', done: true }]);\n  \n  // A computed signal that derives its value from other signals\n  remainingTasks = computed(() => this.tasks().filter(t => !t.done).length);\n\n  addTask(title: string) {\n    this.tasks.update(currentTasks => [...currentTasks, { title, done: false }]);\n  }\n}\n`,
         mistakes: 'Calling a signal like a regular property (e.g., `this.tasks`) instead of as a function (e.g., `this.tasks()`) to get its value. Another mistake is putting complex, expensive calculations inside a `computed` signal that runs too often.'
     },
 };
@@ -45,57 +44,117 @@ const KEYWORDS = Object.keys(CONCEPT_DEFINITIONS);
  * @returns {{cleanedText: string, relatedLinks: {title: string, url: string}[]}}
  */
 function aggressivelyCleanHtml(html, baseUrl) {
-    const $ = cheerio.load(html);
+    // 1. RAW TEXT CLEANUP (The "Nuclear" Option)
+    // Remove scripts and styles via Regex before parsing. 
+    // This guarantees 'nprogress' CSS code is gone.
+    let cleanString = html
+        .replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, "")
+        .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gim, "");
 
-    // OMIT: Navigation bars, site menus, headers, and footers
-    $('nav, header, footer, .menu, .navbar, .sidebar, #sidebar, .top-bar, .bottom-bar').remove();
+    const $ = cheerio.load(cleanString);
 
-    // OMIT: Advertisements, promotional text, and irrelevant containers
-    $('.ad, .promo, .share-buttons, .cookie-banner, .related-posts, .comments').remove();
+    // 2. REMOVE OBVIOUS JUNK
+    // We explicitly remove lists usually associated with menus
+    const badSelectors = [
+        'nav', 'header', 'footer', 'aside', 'form', 'iframe',
+        '.sidebar', '#sidebar', '.menu', '.navbar', '.nav',
+        '.ad', '.promo', '.comments', '.related',
+        '.toc', '.table-of-contents', // Common cause of list dumps
+        '.social-share', '.breadcrumbs'
+    ];
+    $(badSelectors.join(', ')).remove();
 
-    // OMIT: Metadata like "Last Updated" dates - often in time tags or specific classes
-    $('time, .post-date, .meta-data, .byline').remove();
-    
-    // Attempt to find the main article body. Common selectors are used as fallbacks.
-    let articleBody = $('article, .article, .article-body, main, #main, #content').first();
-    if (articleBody.length === 0) {
-        // If no semantic tag is found, use the whole body as a last resort
-        articleBody = $('body');
-    }
-    
-    // Get the HTML of the isolated article body to work with
-    const contentHtml = articleBody.html();
-    const $content = cheerio.load(contentHtml || '');
+    // 3. CANDIDATE SCORING SYSTEM (Mozilla Readability Style)
+    // We don't trust the structure. We score every block element.
+    let maxScore = 0;
+    let $bestCandidate = null;
 
-    // Now, find links *within* the cleaned content
-    const foundLinks = new Set();
-    $content('a').each((i, el) => {
-        const title = $(el).text().trim();
-        const href = $(el).attr('href');
-        if (href && title && !href.startsWith('#') && !href.startsWith('javascript:')) {
-            try {
-                const absoluteUrl = new URL(href, baseUrl).href;
-                // Filter out common non-article links
-                if (title.length > 10 && !title.toLowerCase().includes('comment') && !title.toLowerCase().includes('author')) {
-                    foundLinks.add(JSON.stringify({ title, url: absoluteUrl }));
-                }
-            } catch (e) { /* Ignore invalid URLs */ }
+    $('div, article, main, section').each((i, el) => {
+        const $el = $(el);
+        
+        // --- NEGATIVE CHECKS ---
+        const className = ($el.attr('class') || '') + ' ' + ($el.attr('id') || '');
+        const lowerClass = className.toLowerCase();
+        
+        // Immediate disqualification for sidebar-ish names
+        if (lowerClass.includes('sidebar') || lowerClass.includes('widget')) return;
+
+        // --- CONTENT ANALYSIS ---
+        // Get direct paragraph text (not nested deep in other divs)
+        const paragraphs = $el.find('p');
+        if (paragraphs.length < 2) return; // Articles usually have multiple paragraphs
+
+        // Calculate Score
+        let score = 0;
+        
+        // Add points for having "article" or "content" in class/ID
+        if (lowerClass.includes('article') || lowerClass.includes('post') || lowerClass.includes('content')) {
+            score += 25;
+        }
+
+        // Add points for text length
+        const textLength = $el.text().length;
+        score += Math.min(textLength / 100, 50); // Cap text bonus
+
+        // Add points for paragraph count
+        score += paragraphs.length * 5;
+
+        // --- LINK DENSITY CHECK (Critical for your issue) ---
+        // If the element is mostly links (like a menu), destroy its score.
+        const linkLength = $el.find('a').text().length;
+        const linkDensity = linkLength / Math.max(textLength, 1);
+        
+        if (linkDensity > 0.5) {
+            score -= 1000; // It's a menu, not an article
+        }
+
+        if (score > maxScore) {
+            maxScore = score;
+            $bestCandidate = $el;
         }
     });
-    const relatedLinks = Array.from(foundLinks).map(item => JSON.parse(item)).slice(0, 5);
 
-    // Add newlines to block elements to preserve structure for text conversion
-    $content('h1, h2, h3, h4, p, li, blockquote, pre, div, tr').after('\n\n');
+    // Fallback: If no candidate won, try the first semantic article or body
+    let $content = $bestCandidate || $('article').first() || $('body');
 
-    // Convert to text and perform final cleanup
+    // 4. POST-PROCESSING THE WINNER
+    // Even inside the main article, there might be a "Topics" list at the top.
+    // specific check: Remove any List (ul/ol) that has a high link density.
+    $content.find('ul, ol').each((i, el) => {
+        const $list = $(el);
+        const listText = $list.text().length;
+        const listLinkText = $list.find('a').text().length;
+        
+        // If list is > 50% links, it's likely a navigation list, not content.
+        if (listLinkText / listText > 0.5) {
+            $list.remove();
+        }
+    });
+
+    // 5. EXTRACT LINKS (Only from the isolated content)
+    const foundLinks = new Set();
+    $content.find('a').each((i, el) => {
+        const title = $(el).text().trim();
+        const href = $(el).attr('href');
+        if (href && title && title.length > 5) {
+            try {
+                const absoluteUrl = new URL(href, baseUrl).href;
+                foundLinks.add(JSON.stringify({ title, url: absoluteUrl }));
+            } catch (e) {}
+        }
+    });
+
+    // 6. FORMATTING
+    $content.find('h1, h2, h3, h4, p, li, pre').after('\n\n');
+    $content.find('br').replaceWith('\n');
+
     const cleanedText = $content.text()
-        .replace(/[ \t]+/g, ' ')           // Normalize whitespace
-        .replace(/(\n *){3,}/g, '\n\n') // Collapse excess newlines
+        .replace(/[ \t]+/g, ' ')
+        .replace(/(\n\s*){3,}/g, '\n\n')
         .trim();
 
-    return { cleanedText, relatedLinks };
+    return { cleanedText, relatedLinks: Array.from(foundLinks).map(i => JSON.parse(i)).slice(0, 5) };
 }
-
 
 app.post('/extract', async (req, res) => {
     const { url } = req.body;
